@@ -1,0 +1,71 @@
+name: Download & Upload to Telegram
+
+on:
+  workflow_dispatch:
+
+jobs:
+  process-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: pip install pyrogram tgcrypto requests
+
+      - name: Run Downloader & Uploader
+        env:
+          API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FILE_URL: "https://scloud.monthly-romp-skier.workers.dev/?download=b8817a33e639850e5158a35d22407c0f%3Ae3e00b9eebf43e10a5fe168166396bd5f77c103d8f5ec4594c1b01e6aff28516fc5a3ab6df23e17aafd9c83f0eab7c551c256ac45f7aa213ee3fd87f90415a6c68f854537601d5047fb20d793df628830c16a9d212d0f59ca06f37a3f902353af0893b86397353e635ea9ffd196840b766c5073cb009a49da95c94dd82c2ea023c2f625c9ab5ad8cb213db0a04dcdbfaf0bec8510c21b788daffcde84a316c03eaca9c42306a6b9284d4bbaf7da80579"
+          THUMB_URL: "https://image.tmdb.org/t/p/original/zAIippNnm6o0gYEtjapbjQSxP8G.jpg"
+        run: |
+          python -c "
+          import os, requests, cgi
+          from pyrogram import Client
+
+          # 1. Setup
+          file_url = os.environ['FILE_URL']
+          thumb_url = os.environ['THUMB_URL']
+          chat_id = int(os.environ['CHAT_ID'])
+          
+          # 2. Download Thumbnail
+          print('Downloading thumbnail...')
+          with open('thumb.jpg', 'wb') as f:
+              f.write(requests.get(thumb_url).content)
+
+          # 3. Download Main File
+          print('Downloading main file...')
+          response = requests.get(file_url, stream=True)
+          
+          # Try to get filename from headers
+          filename = 'video.mkv'
+          if 'Content-Disposition' in response.headers:
+              _, params = cgi.parse_header(response.headers['Content-Disposition'])
+              if 'filename' in params:
+                  filename = params['filename']
+          
+          print(f'Detected Filename: {filename}')
+          
+          with open(filename, 'wb') as f:
+              for chunk in response.iter_content(chunk_size=1024*1024):
+                  if chunk: f.write(chunk)
+
+          # 4. Upload to Telegram
+          print('Uploading to Telegram...')
+          app = Client('uploader', api_id=os.environ['API_ID'], api_hash=os.environ['API_HASH'], bot_token=os.environ['BOT_TOKEN'], in_memory=True)
+          
+          with app:
+              # Caption in Bold (**text**)
+              app.send_document(
+                  chat_id, 
+                  document=filename, 
+                  thumb='thumb.jpg', 
+                  caption=f'**{filename}**'
+              )
+          print('Done!')
+          "
